@@ -58,3 +58,6 @@ project-root/
   ```
   ./gradlew test
   ```
+
+### Version catalog
+В `gradle/libs.versions.toml` указаны версии всех библиотек. Нужно быть внимательными с версией kotlin и compose - они должны сочетаться друг с другом
