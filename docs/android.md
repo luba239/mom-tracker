@@ -33,3 +33,9 @@ Model-View-ViewModel - текущий стандарт архитектуры п
 - `View`: Activity/Fragment/Compose, показывает данные.
 - `ViewModel`: хранит состояние UI, взаимодействует с Model, не знает о View.
 - `Model`: данные и обработка данных.
+
+#### ViewModel
+Неожиданная история - без параметров его можно просто создать: `val viewModel: TimerViewModel = viewModel()`, где `class TimerViewModel : ViewModel()`, но когда появляются параметры (например, для передачи контекста) нужно зачем-то городить Factory.  
+
+`viewModelScope.launch` - запуск неблокирующей основной поток корутины  
+

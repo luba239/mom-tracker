@@ -1,14 +1,17 @@
 package org.luba239.mom_tracker
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
 import android.util.Log
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import org.luba239.mom_tracker.database.TimerDatabase
+import org.luba239.mom_tracker.database.TimerStateEntity
 import java.util.Locale
 
 data class TimerSession(
@@ -24,15 +27,20 @@ data class TimerState(
     val sessions: List<TimerSession> = emptyList()
 )
 
-class TimerViewModel : ViewModel() {
+class TimerViewModel(application: Application) : AndroidViewModel(application) {
+    private val timerStateDao = TimerDatabase.getDatabase(application).timerStateDao()
     private val _timerState = MutableStateFlow(TimerState())
     val timerState: StateFlow<TimerState> = _timerState.asStateFlow()
-    
+
     private val _timeSinceLastSession = MutableStateFlow(0L)
     val timeSinceLastSession: StateFlow<Long> = _timeSinceLastSession.asStateFlow()
     
     private var timerJob: kotlinx.coroutines.Job? = null
     private var updateJob: kotlinx.coroutines.Job? = null
+
+    init {
+        loadState()
+    }
 
     fun startTimer() {
         Log.d("TimerViewModel", "startTimer called. State: ${_timerState.value}")
@@ -53,6 +61,7 @@ class TimerViewModel : ViewModel() {
             currentSessionStart = currentTime,
             totalSeconds = 0L
         )
+        saveState()
         
         timerJob = viewModelScope.launch {
             while (isActive) {
@@ -87,6 +96,7 @@ class TimerViewModel : ViewModel() {
             isRunning = false,
             sessions = _timerState.value.sessions + currentSession
         )
+        saveState()
         
         timerJob?.cancel()
         timerJob = null
@@ -120,6 +130,62 @@ class TimerViewModel : ViewModel() {
         timerJob?.cancel()
         timerJob = null
         updateJob?.cancel()
+    }
+
+    private fun saveState() {
+        viewModelScope.launch {
+            val state = _timerState.value
+            val entity = TimerStateEntity(
+                isRunning = state.isRunning,
+                currentSessionStart = state.currentSessionStart,
+                totalSeconds = state.totalSeconds,
+                sessions = state.sessions
+            )
+            timerStateDao.saveTimerState(entity)
+            Log.d("TimerViewModel", "State saved")
+        }
+    }
+
+    private fun loadState() {
+        viewModelScope.launch {
+            val entity = timerStateDao.getTimerState()
+            if (entity != null) {
+                val state = TimerState(
+                    isRunning = entity.isRunning,
+                    currentSessionStart = entity.currentSessionStart,
+                    totalSeconds = entity.totalSeconds,
+                    sessions = entity.sessions
+                )
+                _timerState.value = state
+                Log.d("TimerViewModel", "State loaded")
+
+                if (state.isRunning) {
+                    // Recalculate totalSeconds based on the start time
+                    val elapsed = (System.currentTimeMillis() - state.currentSessionStart) / 1000
+                    _timerState.value = _timerState.value.copy(totalSeconds = elapsed)
+                    
+                    // Restart the timer job
+                    timerJob?.cancel()
+                    timerJob = viewModelScope.launch {
+                        while (isActive) {
+                            delay(1000)
+                            if (_timerState.value.isRunning) {
+                                val currentElapsed = (System.currentTimeMillis() - _timerState.value.currentSessionStart) / 1000
+                                _timerState.value = _timerState.value.copy(totalSeconds = currentElapsed)
+                            } else {
+                                break
+                            }
+                        }
+                    }
+                } else {
+                     updateTimeSinceLastSession()
+                     startUpdatingTimeSinceLastSession()
+                }
+            } else {
+                Log.d("TimerViewModel", "No state found in database. Initializing with default state.")
+                _timerState.value = TimerState()
+            }
+        }
     }
 
     fun formatTime(): String {
